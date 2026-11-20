@@ -18,26 +18,15 @@ def count_neighbors(board):
 
 def next_generation(board):
     neighbors = count_neighbors(board) 
-    rows, cols = board.shape 
-    new_board = np.zeros(board.shape, dtype=int)
+    alive = board == 1
+    # Una celula viva sobrevive con 2 o 3 vecinos, una celula muerta nace con exactamente 3 vecinos
+    survives = alive & ((neighbors == 2) | (neighbors == 3))
+    born = ~alive & (neighbors == 3)
 
-    for row in range(rows):
-        for col in range(cols):
-            if board[row, col] == 1: 
-                if 2 <= neighbors[row, col] <= 3:
-                    new_board[row, col] = 1
-            else: 
-                if neighbors[row, col] == 3:
-                    new_board[row, col] = 1 
-    return new_board
+    return (survives | born).astype(int)
 
 def random_board(rows, cols):
-    new_board = np.zeros((rows, cols), dtype=int) 
-
-    for r in range(rows):
-        for c in range(cols): 
-            new_board[r, c] = 1 if np.random.random() < RANDOM_DENSITY else 0 
-    return new_board 
+    return (np.random.random((rows, cols)) < RANDOM_DENSITY).astype(int)
 
 def compute_layout(window_size):
     width, height = window_size
@@ -51,80 +40,100 @@ def compute_layout(window_size):
     offset_y = (height - (rows * CELL_SIZE)) // 2  
     return rows, cols, (offset_x, offset_y)
 
-def resize_board(board, new_rows, new_cols):
+def resize_board(board, new_rows, new_cols):    
     new_board = np.zeros((new_rows, new_cols), dtype=int) 
-    for row in range(min(new_rows, board.shape[0])): 
-        for col in range(min(new_cols, board.shape[1])):
-            new_board[row, col] = board[row, col] 
+    rows = min(new_rows, board.shape[0])
+    cols = min(new_cols, board.shape[1])
+    new_board[:rows, :cols] = board[:rows, :cols]
     return new_board 
+
+def draw_point(event, board, offset, rows, cols):
+    x, y = event.pos
+    col = (x - offset[0]) // CELL_SIZE
+    row = (y - offset[1]) // CELL_SIZE
+    if 0 <= row < rows and 0 <= col < cols:
+        board[row, col] = 1 - board[row, col]
 
 def create_window():
     desktop_h, desktop_w = pygame.display.get_desktop_sizes()[0]
-
     width = int(desktop_w * 0.9)
     height = int(desktop_h * 0.85) 
-
-    pygame.display.set_mode((width, height), pygame.RESIZABLE)
-    pygame.display.set_caption("Juego de la Vida")
+    window = pygame.Window("Juego de la Vida", (width, height), resizable=True)
 
     try:
-        from pygame._sdl2 import Window
-        window = Window.from_display_module() 
-        #window = pygame.Window(title="Juego de la Vida", size=(width, height), resizable=True).maximize() 
-        window.maximize() 
-    except Exception:
-        pass 
+        window.maximize()
+    except pygame.error as error:
+        print(f"Aviso: no se pudo maximizar la ventana ({error}).")
+
+    return window
 
 def draw_board(screen, board, offset):
     screen.fill(BLACK) 
-    off_x, off_y = offset 
-    rows, cols = board.shape 
+    gray = (board.T * 255).astype(np.uint8)
+    rgb = np.repeat(gray[:, :, np.newaxis], 3, axis=2)
+    small = pygame.surfarray.make_surface(rgb)
+    rows, cols = board.shape
+    big = pygame.transform.scale(small, (cols * CELL_SIZE, rows * CELL_SIZE))
+    screen.blit(big, offset)
 
-    for row in range(rows): 
-        for col in range(cols):
-            if board[row, col] == 1: 
-                x = off_x + (col * CELL_SIZE) 
-                y = off_y + (row * CELL_SIZE) 
-                rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE) 
-                pygame.draw.rect(screen, WHITE, rect) 
+class Game:
 
-pygame.init() 
-create_window() 
-clock = pygame.time.Clock() 
-window_size = pygame.display.get_surface().get_size() 
-rows, cols, offset = compute_layout(window_size) 
-board = np.zeros((rows, cols), dtype=int) 
-paused = True 
-generation = 0
-elapsed_ms = 0
-running = True
+    def __init__(self):
+        pygame.init()
+        self.window = create_window()
+        self.clock = pygame.time.Clock()
+        self.window_size = self.window.get_surface().get_size()
+        self.rows, self.cols, self.offset = compute_layout(self.window_size)
+        self.board = np.zeros((self.rows, self.cols), dtype=int)
+        self.paused = True
+        self.generation = 0
+        self.elapsed_ms = 0
+        self.running = True
 
-while running: 
-    dt = clock.tick(FPS) 
-    screen = pygame.display.get_surface()  
-    if screen.get_size() != window_size: 
-        window_size = screen.get_size() 
-        rows, cols, offset = compute_layout(window_size) 
-        board = resize_board(board, rows, cols) 
-    for event in pygame.event.get(): 
-        if event.type == pygame.QUIT: 
-            running = False 
-        elif event.type == pygame.KEYDOWN: 
-            if event.key == pygame.K_SPACE: 
-                paused = not paused 
-                elapsed_ms = 0
-            elif event.key == pygame.K_r and paused: 
-                board = random_board(rows, cols) 
-                generation = 0 
-    if not paused: 
-        elapsed_ms += dt 
+    def check_resize(self, screen):
+        if screen.get_size() != self.window_size:
+            self.window_size = screen.get_size()
+            self.rows, self.cols, self.offset = compute_layout(self.window_size)
+            self.board = resize_board(self.board, self.rows, self.cols)
+
+    def handle_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    self.paused = not self.paused
+                    self.elapsed_ms = 0
+                elif event.key == pygame.K_r and self.paused:
+                    self.board = random_board(self.rows, self.cols)
+                    self.generation = 0
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.paused:
+                draw_point(event, self.board, self.offset, self.rows, self.cols)
+
+    def update(self, dt):
+        if self.paused:
+            return
+
+        self.elapsed_ms += dt
         interval = 1000 / SPEED
-        while elapsed_ms >= interval: 
-            board = next_generation(board) 
-            generation += 1 
-            elapsed_ms -= interval 
+        while self.elapsed_ms >= interval:
+            self.board = next_generation(self.board)
+            self.generation += 1
+            self.elapsed_ms -= interval
 
-    draw_board(screen, board, offset) 
-    pygame.display.flip() 
+    def draw(self, screen):
+        draw_board(screen, self.board, self.offset)
+        self.window.flip()
 
-pygame.quit()
+    def run(self):
+        while self.running:
+            dt = self.clock.tick(FPS)
+            screen = self.window.get_surface()
+            self.check_resize(screen)
+            self.handle_events()
+            self.update(dt)
+            self.draw(screen)
+
+        pygame.quit()
+
+Game().run()

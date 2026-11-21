@@ -1,13 +1,16 @@
 import numpy as np
 import pygame
 
-CELL_SIZE = 6 
+CELL_SIZE = 6
 SPEED = 10
 FPS = 60
 RANDOM_DENSITY = 0.25 
 WHITE, BLACK = (255, 255, 255), (0, 0, 0)
 
 def count_neighbors(board):
+    """
+    Cuenta los vecinos vivos de cada celula usando un tablero toroidal para contarlos.
+    """
     neighbors = np.zeros(board.shape, dtype=int) 
 
     for dy in [-1, 0, 1]: 
@@ -19,7 +22,6 @@ def count_neighbors(board):
 def next_generation(board):
     neighbors = count_neighbors(board) 
     alive = board == 1
-    # Una celula viva sobrevive con 2 o 3 vecinos, una celula muerta nace con exactamente 3 vecinos
     survives = alive & ((neighbors == 2) | (neighbors == 3))
     born = ~alive & (neighbors == 3)
 
@@ -60,6 +62,7 @@ def create_window():
     height = int(desktop_h * 0.85) 
     window = pygame.Window("Juego de la Vida", (width, height), resizable=True)
 
+    # Se usa un try-except por si el manejador de ventanas no soporta el maximize().
     try:
         window.maximize()
     except pygame.error as error:
@@ -69,8 +72,10 @@ def create_window():
 
 def draw_board(screen, board, offset):
     screen.fill(BLACK) 
+    # Surfarray espera una matriz [x, y] y se tiene [y, x] por lo que se da la transpuesta de la matriz.
     gray = (board.T * 255).astype(np.uint8)
     rgb = np.repeat(gray[:, :, np.newaxis], 3, axis=2)
+    # Se crea una superficie pequena de 1PX que luego se escala, eso mejora el rendimiento en vez de dibujar cada celula una por una.
     small = pygame.surfarray.make_surface(rgb)
     rows, cols = board.shape
     big = pygame.transform.scale(small, (cols * CELL_SIZE, rows * CELL_SIZE))
@@ -114,6 +119,7 @@ class Game:
         if self.paused:
             return
 
+        # Si un frame tarda mucho, se calculan varias generaciones para no perder el ritmo.
         self.elapsed_ms += dt
         interval = 1000 / SPEED
         while self.elapsed_ms >= interval:

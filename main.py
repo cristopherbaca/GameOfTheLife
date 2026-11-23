@@ -5,11 +5,10 @@ CELL_SIZE = 6
 SPEED = 10
 FPS = 60
 RANDOM_DENSITY = 0.25 
-WHITE, BLACK = (255, 255, 255), (0, 0, 0)
 
 def count_neighbors(board):
-    """
-    Cuenta los vecinos vivos de cada celula usando un tablero toroidal para contarlos.
+    """ 
+    Cuenta los vecinos vivos de cada celula usando usando np.roll para dezplazar la matriz de esta forma np.roll(tablero a mover, dezplazamiento, 0 para Y o 1 para X).
     """
     neighbors = np.zeros(board.shape, dtype=int) 
 
@@ -21,10 +20,9 @@ def count_neighbors(board):
 
 def next_generation(board):
     neighbors = count_neighbors(board) 
-    alive = board == 1
-    survives = alive & ((neighbors == 2) | (neighbors == 3))
+    alive = board == 1 # Usamos la propiedad de Numpy que podemos operar todo de golpe para obtener una matriz de booleanos donde True es una celula viva y False una muerta.
+    survives = alive & ((neighbors == 2) | (neighbors == 3)) 
     born = ~alive & (neighbors == 3)
-
     return (survives | born).astype(int)
 
 def random_board(rows, cols):
@@ -33,47 +31,29 @@ def random_board(rows, cols):
 def compute_layout(window_size):
     width, height = window_size
     cols, rows = width // CELL_SIZE, height // CELL_SIZE 
-    if cols < 1: 
-        cols = 1
-    if rows < 1:
-        rows = 1
-
     offset_x = (width - (cols * CELL_SIZE)) // 2 
     offset_y = (height - (rows * CELL_SIZE)) // 2  
     return rows, cols, (offset_x, offset_y)
 
 def resize_board(board, new_rows, new_cols):    
-    new_board = np.zeros((new_rows, new_cols), dtype=int) 
-    rows = min(new_rows, board.shape[0])
-    cols = min(new_cols, board.shape[1])
+    new_board = np.zeros((new_rows, new_cols)).astype(int)
+    rows, cols = min(new_rows, board.shape[0]), min(new_cols, board.shape[1])
     new_board[:rows, :cols] = board[:rows, :cols]
-    return new_board 
+    return new_board
 
 def draw_point(event, board, offset, rows, cols):
-    x, y = event.pos
-    col = (x - offset[0]) // CELL_SIZE
-    row = (y - offset[1]) // CELL_SIZE
-    if 0 <= row < rows and 0 <= col < cols:
-        board[row, col] = 1 - board[row, col]
+    x, y = event.pos 
+    col, row = (x - offset[0]) // CELL_SIZE, (y - offset[1]) // CELL_SIZE 
+    if 0 <= row < rows and 0 <= col < cols: # Verifica que el click haya sido en el tablero.
+        board[row, col] = 1 - board[row, col] # Invertir el estado, 1 - 1 = 0 y 1 - 0 = 1.
 
 def create_window():
-    desktop_h, desktop_w = pygame.display.get_desktop_sizes()[0]
-    width = int(desktop_w * 0.9)
-    height = int(desktop_h * 0.85) 
-    window = pygame.Window("Juego de la Vida", (width, height), resizable=True)
-
-    # Se usa un try-except por si el manejador de ventanas no soporta el maximize().
-    try:
-        window.maximize()
-    except pygame.error as error:
-        print(f"Aviso: no se pudo maximizar la ventana ({error}).")
-
-    return window
+    return pygame.Window(title="", size=pygame.display.get_desktop_sizes()[0], resizable=True) 
 
 def draw_board(screen, board, offset):
-    screen.fill(BLACK) 
+    screen.fill(0) # 0 es negro. 
     # Surfarray espera una matriz [x, y] y se tiene [y, x] por lo que se da la transpuesta de la matriz.
-    gray = (board.T * 255).astype(np.uint8)
+    gray = (board.T * 255).astype(int)
     rgb = np.repeat(gray[:, :, np.newaxis], 3, axis=2)
     # Se crea una superficie pequena de 1PX que luego se escala, eso mejora el rendimiento en vez de dibujar cada celula una por una.
     small = pygame.surfarray.make_surface(rgb)
@@ -89,7 +69,7 @@ class Game:
         self.clock = pygame.time.Clock()
         self.window_size = self.window.get_surface().get_size()
         self.rows, self.cols, self.offset = compute_layout(self.window_size)
-        self.board = np.zeros((self.rows, self.cols), dtype=int)
+        self.board = np.zeros((self.rows, self.cols)).astype(int)
         self.paused = True
         self.generation = 0
         self.elapsed_ms = 0
@@ -107,11 +87,11 @@ class Game:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
-                    self.paused = not self.paused
-                    self.elapsed_ms = 0
+                    self.paused, self.elapsed_ms = not self.paused, 0
                 elif event.key == pygame.K_r and self.paused:
-                    self.board = random_board(self.rows, self.cols)
-                    self.generation = 0
+                    self.board, self.generation = random_board(self.rows, self.cols), 0
+                elif event.key == pygame.K_e and self.paused:
+                    self.board, self.generation = np.zeros((self.rows, self.cols)).astype(int), 0
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.paused:
                 draw_point(event, self.board, self.offset, self.rows, self.cols)
 
